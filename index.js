@@ -30,6 +30,8 @@ function Roomba690Accessory(log, config) {
     this.hostname   = config["hostname"];
     this.model      = config["model"];
 
+    this.lastPowerState = null;
+
     log("Initialised Roomba with Name: [%s] Hostname: [%s] BLID: [%s] Model: [%s]", this.name, this.hostname, this.blid, this.model);
 }
 
@@ -177,9 +179,19 @@ Roomba690Accessory.prototype = {
    *
    */
     getPowerState: function(callback) {
-
+        var self = this;
         var log = this.log;
         log("Power state requested for Roomba");
+
+        if (this.lastPowerState !== null) {
+          log("First, returning the last cached state: %s", this.lastPowerState);
+          callback(null, this.lastPowerState ? 1 : 0);
+
+          callback = (error, newValue) => {
+            // https://github.com/KhaosT/HAP-NodeJS/issues/543
+            this.onCharacteristic.updateValue(error || newValue);
+          }
+        }
 
         var myRobotViaLocal = new dorita980.Local(this.blid, this.password, this.hostname);
 
@@ -202,7 +214,9 @@ Roomba690Accessory.prototype = {
                         log("Roomba is not running");
                         callback(null, 0);
                         break;
-                }                
+                }
+
+                self.lastPowerState = state.cleanMissionStatus.phase === "run";
 
             })).catch(function(err) {
 
@@ -366,7 +380,8 @@ Roomba690Accessory.prototype = {
         /* Switch Service */
         // Supports our on/off for the Roomba
         var switchService = new Service.Switch(this.name);
-        switchService.getCharacteristic(Characteristic.On).on('get', this.getPowerState.bind(this)).on('set', this.setPowerState.bind(this));
+        this.onCharacteristic = switchService.getCharacteristic(Characteristic.On);
+        this.onCharacteristic.on('get', this.getPowerState.bind(this)).on('set', this.setPowerState.bind(this));
 
         log("Reporting that we support AccessoryInformation, SwitchService and BatteryService");
         return [accessoryInfo, switchService, batteryService];
